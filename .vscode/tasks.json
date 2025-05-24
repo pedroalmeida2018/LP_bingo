@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"label": "Compilar projeto Java Bingo",
+			"command": "javac BingoCard.java BingoClient.java BingoServerSimples.java",
+			"group": "build",
+			"problemMatcher": [
+				"$javac"
+			]
+		}
+	]
+}
