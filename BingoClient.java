@@ -140,9 +140,11 @@ public class BingoClient extends JFrame {
             try {
                 while (true) {
                     String resposta = in.readLine();
+                    System.out.println("Resposta recebida do servidor: " + resposta);
                     if (resposta == null) break;
                     if (resposta.startsWith("CARTAO;")) {
                         String[] nums = resposta.substring(7).split(",");
+                        System.out.println("Números recebidos: " + Arrays.toString(nums));
                         int[][] cardNums = new int[5][5];
                         for (int i = 0; i < 25; i++) {
                             cardNums[i/5][i%5] = Integer.parseInt(nums[i]);
@@ -180,12 +182,14 @@ public class BingoClient extends JFrame {
     }
 
     private void gerarCartaoComNumeros(int[][] cardNums) {
+        System.out.println("Gerando cartão com números...");
         bingoCard = new BingoCard(cardNums);
         drawnNumbers.clear();
         for (int i = 0; i < 25; i++) {
             int row = i / 5;
             int col = i % 5;
             int number = bingoCard.getNumber(row, col);
+            System.out.println("Posição [" + row + "," + col + "] = " + number);
             JButton button = cardButtons[i];
             button.setText(String.valueOf(number));
             button.setEnabled(true);
