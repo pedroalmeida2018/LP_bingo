@@ -2,9 +2,9 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 
-public class BingoServerSimples {
-    private static final int PORT = 12345;
-    private static final int MAX_NUM = 75;    private static final int NUM_JOGADORES = 2; // Defina o número de jogadores necessários
+public class BingoServerSimples {    private static final int PORT = 12345;
+    private static final int MAX_NUM = 75;
+    private static final int NUM_JOGADORES = 2; // Defina o número de jogadores necessários
     private static Set<Integer> drawnNumbers = new HashSet<>();
     private static List<PrintWriter> clients = new ArrayList<>();
     private static Map<String, String> cardIdToName = new HashMap<>();
@@ -60,6 +60,7 @@ public class BingoServerSimples {
             String cardId = "";
             boolean cartaoEnviado = false;
             while ((linha = in.readLine()) != null) {
+                System.out.println("Recebido do cliente: " + linha);
                 if (linha.startsWith("LOGIN;")) {
                     String[] parts = linha.split(";");
                     nome = parts[1];
@@ -72,11 +73,15 @@ public class BingoServerSimples {
                     sb.append("CARTAO;");
                     for (int i = 0; i < 5; i++) {
                         for (int j = 0; j < 5; j++) {
-                            sb.append(card.getNumber(i, j));
+                            int num = card.getNumber(i, j);
+                            System.out.println("Número gerado para posição [" + i + "," + j + "]: " + num);
+                            sb.append(num);
                             if (!(i == 4 && j == 4)) sb.append(",");
                         }
                     }
-                    out.println(sb.toString());
+                    String cartaoMsg = sb.toString();
+                    System.out.println("Enviando cartão para cliente: " + cartaoMsg);
+                    out.println(cartaoMsg);
                     cartaoEnviado = true;
                 } else if (linha.startsWith("PRONTO;")) {
                     // Cliente sinalizou que está pronto
