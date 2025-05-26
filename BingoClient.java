@@ -94,7 +94,7 @@ public class BingoClient extends JFrame {
         readyButton.setEnabled(false);
 
         try {
-            socket = new Socket("localhost", 12345); // Altere para o IP/porta do seu servidor
+            socket = new Socket("192.168.1.122", 12345); // Altere para o IP/porta do seu servidor
             out = new PrintWriter(socket.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
         } catch (IOException e) {
