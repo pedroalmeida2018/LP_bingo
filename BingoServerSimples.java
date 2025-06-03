@@ -2,34 +2,70 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 
-public class BingoServerSimples {    private static final int PORT = 12345;
+public class BingoServerSimples {
+    private static final int PORT = 12345;
     private static final int MAX_NUM = 75;
-    private static final int NUM_JOGADORES = 2; // Defina o número de jogadores necessários
-    private static Set<Integer> drawnNumbers = new HashSet<>();
-    private static List<PrintWriter> clients = new ArrayList<>();
-    private static Map<String, String> cardIdToName = new HashMap<>();
-    private static Map<String, BingoCard> clientCards = new HashMap<>();
-    private static BingoCard serverCard = new BingoCard();
-    private static String serverName = "Servidor";
-    private static boolean linhaFeita = false;
-    private static boolean bingoFeito = false;
-    private static Set<String> prontos = new HashSet<>();
+    private static final int NUM_JOGADORES = 2;
+    private static final Map<String, BingoCard> clientCards = new HashMap<>();
+    private static final Set<Integer> drawnNumbers = new HashSet<>();
+    private static final Set<String> prontos = new HashSet<>();
+    private static final List<PrintWriter> clients = new ArrayList<>();
+    private static final String serverName = "Servidor";
+    private static final Map<String, String> cardIdToName = new HashMap<>();
+    private static final BingoCard serverCard = new BingoCard();
     private static volatile boolean jogoIniciado = false;
-    private static Thread sorteioThread;
+    private static volatile boolean linhaFeita = false;
+    private static volatile boolean bingoFeito = false;
+    private static Thread sorteioThread = null;
 
-    public static void main(String[] args) throws IOException {
-        ServerSocket serverSocket = new ServerSocket(PORT);
+    public static void main(String[] args) {
         System.out.println("Servidor Bingo iniciado na porta " + PORT);
+        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+            while (true) {
+                Socket clientSocket = serverSocket.accept();
+                new Thread(() -> handleClient(clientSocket)).start();
+            }
+        } catch (IOException e) {
+            System.out.println("Erro no servidor: " + e.getMessage());
+        }
+    }
 
-        // Thread de sorteio só será iniciada após todos os jogadores estarem prontos
+    private static synchronized void broadcast(String mensagem) {
+        System.out.println(">>> Broadcast: " + mensagem);
+        for (PrintWriter client : clients) {
+            client.println(mensagem);
+            client.flush();
+        }
+    }
+
+    private static void iniciarSorteio() {
+        if (sorteioThread != null && sorteioThread.isAlive()) {
+            return;
+        }
+
         sorteioThread = new Thread(() -> {
+            System.out.println(">>> Iniciando sorteio de números...");
             Random rand = new Random();
-            while (!bingoFeito && drawnNumbers.size() < MAX_NUM) {
-                int n = rand.nextInt(MAX_NUM) + 1;
-                if (drawnNumbers.add(n)) {
-                    broadcast("NUMERO;" + n);
-                    System.out.println("Sorteado: " + n);
-                    serverCard.markNumber(n);
+            
+            try {
+                Thread.sleep(2000);
+                
+                while (!bingoFeito && drawnNumbers.size() < MAX_NUM) {
+                    int numeroSorteado;
+                    synchronized (drawnNumbers) {
+                        do {
+                            numeroSorteado = rand.nextInt(MAX_NUM) + 1;
+                        } while (!drawnNumbers.add(numeroSorteado));
+                    }
+                    
+                    broadcast("NUMERO;" + numeroSorteado);
+                    System.out.println(">>> Número sorteado: " + numeroSorteado + " (Total: " + drawnNumbers.size() + ")");
+                    
+                    for (BingoCard card : clientCards.values()) {
+                        card.markNumber(numeroSorteado);
+                    }
+                    
+                    serverCard.markNumber(numeroSorteado);
                     if (!linhaFeita && serverCard.hasLine()) {
                         linhaFeita = true;
                         broadcast("LINHA_VALIDA;" + serverName);
@@ -37,85 +73,130 @@ public class BingoServerSimples {    private static final int PORT = 12345;
                     if (serverCard.hasBingo()) {
                         bingoFeito = true;
                         broadcast("BINGO_VALIDA;" + serverName);
+                        break;
                     }
-                    try { Thread.sleep(10000); } catch (InterruptedException e) { }
+                    
+                    Thread.sleep(3000);
                 }
+            } catch (InterruptedException e) {
+                System.out.println(">>> Sorteio interrompido: " + e.getMessage());
+                Thread.currentThread().interrupt();
             }
         });
-
-        // Aceita clientes
-        while (true) {
-            Socket client = serverSocket.accept();
-            new Thread(() -> handleClient(client)).start();
-        }
+        sorteioThread.setDaemon(true);
+        sorteioThread.start();
     }
-
+    
     private static void handleClient(Socket client) {
-        try {
+        try (
             BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
-            PrintWriter out = new PrintWriter(client.getOutputStream(), true);
-            clients.add(out);
+            PrintWriter out = new PrintWriter(client.getOutputStream(), true)
+        ) {
+            synchronized (clients) {
+                clients.add(out);
+            }
             String linha;
             String nome = "";
             String cardId = "";
-            boolean cartaoEnviado = false;
+            
+            System.out.println(">>> Novo cliente conectado! Total de clientes: " + clients.size());
+            
             while ((linha = in.readLine()) != null) {
-                System.out.println("Recebido do cliente: " + linha);
+                String[] partes = linha.split(";");
+                String comando = partes[0];
+                  if (comando.equals("CONECTAR")) {
+                    nome = partes[1];
+                    cardId = partes[2];
+                    BingoCard card = new BingoCard();
+                    clientCards.put(cardId, card);
+                    cardIdToName.put(cardId, nome);
+                    out.println("CARD;" + card.toString());
+                    System.out.println(">>> Cliente " + nome + " conectado com cardId " + cardId);
+                    out.println("OK;Bem-vindo(a) " + nome + "!");
+                    broadcast("INFO;" + nome + " entrou no jogo!");
+                    continue;
+                }
                 if (linha.startsWith("LOGIN;")) {
                     String[] parts = linha.split(";");
                     nome = parts[1];
-                    cardId = parts[2];
-                    cardIdToName.put(cardId, nome);
-                    // Gerar cartão e enviar ao cliente
+                    String recebidoCardId = parts[2];
                     BingoCard card = new BingoCard();
-                    clientCards.put(cardId, card);
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("CARTAO;");
+                    System.out.println(">>> Gerando novo cartão para " + nome);
+                    StringBuilder cardStr = new StringBuilder();
                     for (int i = 0; i < 5; i++) {
                         for (int j = 0; j < 5; j++) {
-                            int num = card.getNumber(i, j);
-                            System.out.println("Número gerado para posição [" + i + "," + j + "]: " + num);
-                            sb.append(num);
-                            if (!(i == 4 && j == 4)) sb.append(",");
+                            cardStr.append(card.getNumber(i, j));
+                            if (j < 4) cardStr.append(",");
                         }
+                        if (i < 4) cardStr.append(";");
                     }
-                    String cartaoMsg = sb.toString();
-                    System.out.println("Enviando cartão para cliente: " + cartaoMsg);
-                    out.println(cartaoMsg);
-                    cartaoEnviado = true;
+                    clientCards.put(recebidoCardId, card);
+                    cardIdToName.put(recebidoCardId, nome);
+                    String cartaoString = cardStr.toString();
+                    System.out.println(">>> Cartão gerado: " + cartaoString);
+                    out.println("CARTAO;" + recebidoCardId + ";" + cartaoString);
+                    out.flush();
+                    System.out.println(">>> Cartão enviado para " + nome + " (ID: " + recebidoCardId + ")");
                 } else if (linha.startsWith("PRONTO;")) {
-                    // Cliente sinalizou que está pronto
-                    prontos.add(cardId);
+                    String[] parts = linha.split(";");
+                    String readyCardId = parts[1];
+                    System.out.println(">>> Recebido PRONTO do jogador " + cardIdToName.get(readyCardId));
+                    synchronized (prontos) {
+                        prontos.add(readyCardId);
+                    }
+                    System.out.println(">>> Jogadores prontos: " + prontos.size() + "/" + NUM_JOGADORES);
+                    System.out.println(">>> Lista de prontos: " + String.join(", ", prontos));
+                    System.out.println(">>> Jogo já iniciado? " + jogoIniciado);
                     broadcast("AGUARDE;Aguardando outros jogadores ficarem prontos... (" + prontos.size() + "/" + NUM_JOGADORES + ")");
-                    if (prontos.size() == NUM_JOGADORES && !jogoIniciado) {
+                    
+                    if (prontos.size() >= NUM_JOGADORES && !jogoIniciado) {
+                        System.out.println(">>> INICIANDO JOGO!");
                         jogoIniciado = true;
                         broadcast("INICIAR;O jogo vai começar!");
-                        sorteioThread.start();
+                        System.out.println(">>> Mensagem INICIAR enviada para todos os clientes");
+                        iniciarSorteio();
                     }
                 } else if (linha.startsWith("LINHA;")) {
-                    if (!linhaFeita) {
-                        linhaFeita = true;
-                        broadcast("LINHA_VALIDA;" + nome);
-                    } else {
-                        out.println("INVALIDO");
+                    String[] parts = linha.split(";");
+                    String cardId = parts[1];
+                    BingoCard card = clientCards.get(cardId);
+                    if (card != null && card.hasLine()) {
+                        broadcast("LINHA_VALIDA;" + cardIdToName.get(cardId));
                     }
                 } else if (linha.startsWith("BINGO;")) {
-                    if (!bingoFeito) {
-                        bingoFeito = true;
-                        broadcast("BINGO_VALIDA;" + nome);
-                    } else {
-                        out.println("INVALIDO");
+                    String[] parts = linha.split(";");
+                    String bingoCardId = parts[1];
+                    BingoCard bingoCard = clientCards.get(bingoCardId);
+                    String bingoPlayer = cardIdToName.get(bingoCardId);
+                    if (bingoCard != null && bingoPlayer != null) {
+                        // Marca todos os números sorteados no cartão do jogador
+                        synchronized (drawnNumbers) {
+                            for (int num : drawnNumbers) {
+                                bingoCard.markNumber(num);
+                            }
+                        }
+                        if (bingoCard.hasBingo()) {
+                            bingoFeito = true;
+                            System.out.println(">>> BINGO VÁLIDO do jogador " + bingoPlayer);
+                            broadcast("BINGO_VALIDA;" + bingoPlayer);
+                        } else {
+                            System.out.println(">>> BINGO INVÁLIDO do jogador " + bingoPlayer);
+                            out.println("BINGO_INVALIDO;Você precisa marcar todos os números sorteados antes de fazer Bingo!");
+                        }
                     }
                 }
             }
         } catch (IOException e) {
-            // Cliente desconectou
-        }
-    }
-
-    private static void broadcast(String msg) {
-        for (PrintWriter out : clients) {
-            out.println(msg);
+            System.out.println("Erro ao processar cliente: " + e.getMessage());
+        } finally {
+            try {
+                synchronized (clients) {
+                    clients.removeIf(writer -> writer.checkError());
+                }
+                client.close();
+            } catch (IOException e) {
+                System.out.println("Erro ao fechar conexão com cliente: " + e.getMessage());
+            }
         }
     }
 }

@@ -83,4 +83,29 @@ public class BingoCard {
         }
         return todasLinhas && todasColunas;
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 5; i++) {
+            for (int j = 0; j < 5; j++) {
+                sb.append(numbers[i][j]);
+                if (j < 4) sb.append(",");
+            }
+            if (i < 4) sb.append(";");
+        }
+        return sb.toString();
+    }
+
+    public static BingoCard fromString(String str) {
+        String[] rows = str.split(";");
+        int[][] nums = new int[5][5];
+        for (int i = 0; i < 5; i++) {
+            String[] cols = rows[i].split(",");
+            for (int j = 0; j < 5; j++) {
+                nums[i][j] = Integer.parseInt(cols[j]);
+            }
+        }
+        return new BingoCard(nums);
+    }
 }
